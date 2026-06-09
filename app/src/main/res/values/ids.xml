@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Stable id for the MapLibre MapView so it survives config changes. -->
+    <item name="ghostroute_map_view" type="id" />
+</resources>

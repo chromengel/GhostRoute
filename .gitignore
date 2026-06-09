@@ -1,0 +1,29 @@
+*.iml
+.gradle/
+.idea/
+/local.properties
+.DS_Store
+/build
+build/
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.apk
+*.aab
+
+# Large generated/offline data — never commit these
+*.pmtiles
+*.osm.pbf
+/data/
+/scripts/.planetiler/
+/scripts/data/
+app/src/main/assets/basemap/
+
+# Local SDK config / signing secrets (belt-and-suspenders)
+key.properties
+*.keystore
+*.jks
+
+# Local Claude Code settings (per-user)
+.claude/settings.local.json

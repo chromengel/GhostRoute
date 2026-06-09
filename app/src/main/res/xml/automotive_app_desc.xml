@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Declares GhostRoute to the Android Auto host as a TEMPLATE (Android-for-Cars
+  App Library) app. The metadata key that references this file is named
+  "com.google.android.gms.car.application" by Android convention — that is a
+  manifest KEY string only; GhostRoute pulls in NO Google Play Services
+  dependency (verified by :app:verifyNoGms, which audits the classpath).
+-->
+<automotiveApp>
+    <uses name="template" />
+</automotiveApp>
