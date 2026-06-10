@@ -8,6 +8,7 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.text.format.DateUtils
+import android.view.Gravity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -56,12 +57,14 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Straight
+import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material.icons.filled.TurnLeft
 import androidx.compose.material.icons.filled.TurnRight
 import androidx.compose.material.icons.filled.TurnSharpLeft
@@ -218,6 +221,15 @@ fun MapScreen(modifier: Modifier = Modifier) {
         val viewModel: MapViewModel = viewModel()
         val cameras by viewModel.cameras.collectAsStateWithLifecycle()
         val camerasVisible = viewModel.camerasVisible
+
+        // All saved places as labeled map pins: Home/Work (relabeled) + pinned favorites.
+        val favMarkers = remember(viewModel.home, viewModel.work, viewModel.favorites) {
+            buildList {
+                viewModel.home?.let { add(it.copy(name = "Home")) }
+                viewModel.work?.let { add(it.copy(name = "Work")) }
+                addAll(viewModel.favorites)
+            }
+        }
         val syncState = viewModel.syncState
 
         // Touching the map (pan or tap) slides the "Where to?" sheet down to its peek so the
@@ -248,6 +260,11 @@ fun MapScreen(modifier: Modifier = Modifier) {
                 // below), so disable MapLibre's overlapping logo + attribution.
                 map.uiSettings.isLogoEnabled = false
                 map.uiSettings.isAttributionEnabled = false
+                // Put the compass in the TOP-LEFT so it doesn't sit under the top-right
+                // overflow (⋮) menu when the map rotates off north.
+                val cm = (16 * view.context.resources.displayMetrics.density).toInt()
+                map.uiSettings.compassGravity = Gravity.TOP or Gravity.START
+                map.uiSettings.setCompassMargins(cm, cm, 0, 0)
                 if (!mapConfigured.value) {
                     mapConfigured.value = true
                     map.cameraPosition = CameraPosition.Builder()
@@ -302,11 +319,15 @@ fun MapScreen(modifier: Modifier = Modifier) {
             styleHolder.value = null
             map.setStyle(Style.Builder().fromJson(BasemapProvider.buildStyleJson(context, night))) { style ->
                 // Route under cameras under the location puck (draw order).
+                style.addTopoLayers(context)
+                style.setTopoVisible(viewModel.topoVisible)
                 style.addRouteLayers()
                 style.addCameraLayers()
+                style.addFavoriteLayers()
                 style.addLocationPuckLayers()
                 style.updateCameras(cameras)
                 style.setCamerasVisible(camerasVisible)
+                style.updateFavorites(favMarkers)
                 locationHolder.value?.let {
                     style.getSourceAs<GeoJsonSource>(LOCATION_SOURCE_ID)
                         ?.setGeoJson(locationFeature(it.longitude, it.latitude, lastBearing))
@@ -352,9 +373,17 @@ fun MapScreen(modifier: Modifier = Modifier) {
         LaunchedEffect(cameras, styleHolder.value) {
             styleHolder.value?.updateCameras(cameras)
         }
+        // Refresh favorite pins whenever saved places change (or the style reloads).
+        LaunchedEffect(favMarkers, styleHolder.value) {
+            styleHolder.value?.updateFavorites(favMarkers)
+        }
         // Apply the camera-layer visibility toggle.
         LaunchedEffect(camerasVisible, styleHolder.value) {
             styleHolder.value?.setCamerasVisible(camerasVisible)
+        }
+        // Apply the topographic-overlay toggle.
+        LaunchedEffect(viewModel.topoVisible, styleHolder.value) {
+            styleHolder.value?.setTopoVisible(viewModel.topoVisible)
         }
 
         // Draw routes (selected + faint alternatives) + destination pin.
@@ -548,7 +577,8 @@ fun MapScreen(modifier: Modifier = Modifier) {
             )
         }
 
-        // Control stack (bottom-right): camera toggle, refresh, recenter.
+        // Recenter button (bottom-right). Camera show/hide + refresh now live in the
+        // top-right overflow menu so the map face stays clean.
         Column(
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -556,29 +586,6 @@ fun MapScreen(modifier: Modifier = Modifier) {
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, top = 16.dp, bottom = if (viewModel.isNavigating) 120.dp else visibleSheetDp + 16.dp),
         ) {
-            if (!viewModel.isNavigating) {
-                SmallFloatingActionButton(onClick = { viewModel.toggleCameras() }) {
-                    Icon(
-                        imageVector = if (camerasVisible) Icons.Filled.Videocam else Icons.Filled.VideocamOff,
-                        contentDescription = stringRes(
-                            context,
-                            if (camerasVisible) R.string.hide_cameras else R.string.show_cameras,
-                        ),
-                    )
-                }
-
-                SmallFloatingActionButton(onClick = { viewModel.refreshNow() }) {
-                    if (syncState is SyncUiState.Syncing) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.Refresh,
-                            contentDescription = stringRes(context, R.string.refresh_cameras),
-                        )
-                    }
-                }
-            }
-
             FloatingActionButton(
                 onClick = {
                     if (!hasLocationPermission) {
@@ -608,6 +615,68 @@ fun MapScreen(modifier: Modifier = Modifier) {
                     imageVector = Icons.Filled.MyLocation,
                     contentDescription = stringRes(context, R.string.recenter),
                 )
+            }
+        }
+
+        // Top-right overflow menu: camera show/hide + refresh. Keeps the map face clean;
+        // hidden during navigation (the top is the maneuver banner then).
+        if (!viewModel.isNavigating) {
+            var menuOpen by remember { mutableStateOf(false) }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 16.dp, end = 16.dp),
+            ) {
+                SmallFloatingActionButton(onClick = { menuOpen = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.MoreVert,
+                        contentDescription = stringRes(context, R.string.menu),
+                    )
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(stringRes(context, if (camerasVisible) R.string.hide_cameras else R.string.show_cameras))
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (camerasVisible) Icons.Filled.VideocamOff else Icons.Filled.Videocam,
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = { viewModel.toggleCameras(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringRes(
+                                    context,
+                                    if (syncState is SyncUiState.Syncing) R.string.refreshing_cameras else R.string.refresh_cameras,
+                                ),
+                            )
+                        },
+                        leadingIcon = {
+                            if (syncState is SyncUiState.Syncing) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(imageVector = Icons.Filled.Refresh, contentDescription = null)
+                            }
+                        },
+                        enabled = syncState !is SyncUiState.Syncing,
+                        onClick = { viewModel.refreshNow(); menuOpen = false },
+                    )
+                    if (viewModel.topoAvailable) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(stringRes(context, if (viewModel.topoVisible) R.string.hide_topo else R.string.show_topo))
+                            },
+                            leadingIcon = {
+                                Icon(imageVector = Icons.Filled.Terrain, contentDescription = null)
+                            },
+                            onClick = { viewModel.toggleTopo(); menuOpen = false },
+                        )
+                    }
+                }
             }
         }
 
@@ -1336,11 +1405,15 @@ private fun RoutePanel(
  */
 private fun routeLabels(context: Context, routes: List<ScoredRoute>): List<String> {
     if (routes.isEmpty()) return emptyList()
-    val minCam = routes.minOf { it.camerasPassed }
-    val fastestCam = routes.first().camerasPassed
-    return routes.mapIndexed { i, r ->
+    // A learned "Your usual" route may sit at the front; label the computed ones by their own
+    // (time-sorted) ranking, ignoring the learned entry so "Fastest" still means fastest.
+    val computed = routes.filter { !it.isLearned }
+    val minCam = computed.minOfOrNull { it.camerasPassed } ?: 0
+    val fastestCam = computed.firstOrNull()?.camerasPassed ?: 0
+    return routes.map { r ->
         when {
-            i == 0 -> stringRes(context, R.string.route_label_fastest)
+            r.isLearned -> stringRes(context, R.string.route_label_usual)
+            r === computed.firstOrNull() -> stringRes(context, R.string.route_label_fastest)
             r.camerasPassed == minCam && r.camerasPassed < fastestCam -> stringRes(context, R.string.route_label_low_exposure)
             r.camerasPassed < fastestCam -> stringRes(context, R.string.route_label_balanced)
             else -> stringRes(context, R.string.route_label_alternate)

@@ -8,6 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ghostroute.app.data.CameraEntity
 import com.ghostroute.app.data.CameraRepository
+import com.ghostroute.app.map.TopoProvider
 import com.ghostroute.app.data.GeoBounds
 import com.ghostroute.app.car.NavHub
 import com.ghostroute.app.data.SyncOutcome
@@ -15,6 +16,7 @@ import com.ghostroute.app.geocode.GeoResult
 import com.ghostroute.app.geocode.GeocoderService
 import com.ghostroute.app.navigation.NavigationEngine
 import com.ghostroute.app.navigation.Voice
+import com.ghostroute.app.places.LearnedRoutesStore
 import com.ghostroute.app.places.PlacesStore
 import com.ghostroute.app.places.SavedPlace
 import com.ghostroute.app.routing.AlternativesOutcome
@@ -63,10 +65,14 @@ data class NavState(
     val recalculating: Boolean,
 )
 
+/** Minimum spacing between recorded GPS trace points (meters) while learning a trip. */
+private const val TRACE_SAMPLE_M = 25.0
+
 class MapViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repository = CameraRepository.get(app)
     private val placesStore = PlacesStore(app)
+    private val learnedRoutes = LearnedRoutesStore(app)
 
     // ---- Saved places: recents + favorites (Home, Work, pinned). All offline. ----
     var recents by mutableStateOf(placesStore.recents())
@@ -150,6 +156,12 @@ class MapViewModel(app: Application) : AndroidViewModel(app) {
     var camerasVisible by mutableStateOf(true)
         private set
 
+    /** Whether the optional topographic overlay (hillshade + contours) is installed, and
+     *  whether it's currently shown. The toggle only appears when the data is present. */
+    val topoAvailable: Boolean = TopoProvider.isInstalled(app)
+    var topoVisible by mutableStateOf(false)
+        private set
+
     var syncState by mutableStateOf<SyncUiState>(SyncUiState.Idle)
         private set
 
@@ -195,6 +207,10 @@ class MapViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleCameras() {
         camerasVisible = !camerasVisible
+    }
+
+    fun toggleTopo() {
+        topoVisible = !topoVisible
     }
 
     // ---- Offline address/POI search (Phase 6) ----
@@ -274,15 +290,29 @@ class MapViewModel(app: Application) : AndroidViewModel(app) {
                 )
             ) {
                 is AlternativesOutcome.Success -> {
-                    selectedRouteIndex = defaultSelection(outcome.routes)
+                    val routes = withLearnedRoute(from, to, outcome.routes)
+                    // If we reconstructed the user's usual route, default to it; else fewest cameras.
+                    selectedRouteIndex = if (routes.firstOrNull()?.isLearned == true) 0 else defaultSelection(routes)
                     // Mirror the chosen route to the Android Auto screen.
-                    NavHub.setRoute(outcome.routes.getOrNull(selectedRouteIndex)?.points ?: emptyList())
-                    RoutingUiState.Ready(outcome.routes)
+                    NavHub.setRoute(routes.getOrNull(selectedRouteIndex)?.points ?: emptyList())
+                    RoutingUiState.Ready(routes)
                 }
                 is AlternativesOutcome.Error -> RoutingUiState.Failed(outcome.message)
                 AlternativesOutcome.GraphNotReady -> RoutingUiState.GraphMissing
             }
         }
+    }
+
+    /** If we've learned a usual route to [to] and the user is starting near where it was
+     *  learned, reconstruct it and put it first as "Your usual"; otherwise leave [routes]. */
+    private suspend fun withLearnedRoute(
+        from: RoutePoint,
+        to: RoutePoint,
+        routes: List<ScoredRoute>,
+    ): List<ScoredRoute> {
+        val chain = learnedRoutes.chainFrom(to, from) ?: return routes
+        val learned = RoutingService.routeViaPoints(getApplication(), avoidedCameras(), chain) ?: return routes
+        return listOf(learned) + routes
     }
 
     /**
@@ -319,6 +349,11 @@ class MapViewModel(app: Application) : AndroidViewModel(app) {
     private var navDestination: RoutePoint? = null
     private var recalculating = false
 
+    // Raw GPS trace of the current trip, recorded so GhostRoute can auto-learn the way you
+    // actually drove to a destination and default to it next time. On-device only.
+    private val drivenTrace = ArrayList<RoutePoint>()
+    private var learnedThisTrip = false
+
     /** Begins turn-by-turn on the currently selected alternative. */
     fun startNavigation() {
         val ready = routingState as? RoutingUiState.Ready ?: return
@@ -330,6 +365,8 @@ class MapViewModel(app: Application) : AndroidViewModel(app) {
         navDestination = to
         isNavigating = true
         navState = null
+        drivenTrace.clear()
+        learnedThisTrip = false
         if (voice == null) voice = Voice(getApplication())
         voice?.enabled = voiceEnabled
 
@@ -361,6 +398,15 @@ class MapViewModel(app: Application) : AndroidViewModel(app) {
         voice?.stop()
     }
 
+    /** On a completed trip, remember the downsampled path we drove, keyed to the destination,
+     *  so the next route there can default to "your usual" way. */
+    private fun learnTripIfWorthwhile() {
+        val dest = navDestination ?: return
+        if (drivenTrace.size < 3) return
+        val chain = LearnedRoutesStore.downsample(drivenTrace, dest)
+        if (chain.size >= 2) learnedRoutes.learn(dest, chain)
+    }
+
     fun toggleVoice() {
         voiceEnabled = !voiceEnabled
         voice?.enabled = voiceEnabled
@@ -372,7 +418,18 @@ class MapViewModel(app: Application) : AndroidViewModel(app) {
         val engine = navEngine ?: return
         if (!isNavigating) return
 
+        // Record the path actually driven (sampled by distance to stay compact).
+        val here = RoutePoint(lat, lon)
+        if (drivenTrace.isEmpty() || LearnedRoutesStore.meters(drivenTrace.last(), here) >= TRACE_SAMPLE_M) {
+            drivenTrace.add(here)
+        }
+
         val update = engine.update(lat, lon, speedMps)
+        // On arrival, remember the way we came so it becomes the default next time.
+        if (update.arrived && !learnedThisTrip) {
+            learnedThisTrip = true
+            learnTripIfWorthwhile()
+        }
         navState = NavState(
             maneuverText = update.nextManeuver?.text ?: "",
             maneuverSign = update.nextManeuver?.sign ?: 0,

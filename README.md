@@ -29,11 +29,14 @@ License‑plate readers are spreading fast, and most of them are mapped in the o
 ## Features
 
 - 🛰️ **Camera‑aware routing.** Computes the fastest route **and** camera‑avoiding alternatives, scored by how many readers each one passes. Avoidance is **directional** — a camera only "counts" if it actually reads your direction of travel.
-- 🧭 **Waze‑style drive view.** Heading‑up map that rotates to your direction of travel, a live MPH speedometer, a triangular nav arrow, and a turn‑by‑turn banner with voice prompts.
+- 🧭 **Waze‑style drive view.** Heading‑up map that rotates to your direction of travel, a live MPH speedometer, a triangular nav arrow, and a turn‑by‑turn banner with spoken, speed‑scaled voice prompts. The portion you've already driven fades to a faint trail behind you.
+- 🧠 **Learns your routes.** Drive somewhere your own way and GhostRoute quietly remembers it; next time it offers **"Your usual"** — your habitual route, rebuilt with full turn‑by‑turn — pre‑selected over its own suggestion. Entirely on‑device.
+- ⛰️ **Topographic overlay.** An optional, toggleable layer of **hillshade relief + contour lines** (with elevation labels), rendered under the roads. Built from elevation data and bundled offline like the basemap.
+- ⭐ **Favorites on the map.** Home, Work, and pinned places appear as labeled pins, plus a favorites row with rename/remove and a draggable bottom sheet you can park anywhere.
 - 🗺️ **Fully offline basemap.** Vector tiles (OpenMapTiles schema) rendered by MapLibre with day/night themes that flip automatically at local sunrise/sunset.
 - 🔎 **Offline search.** On‑device SQLite + FTS geocoder over streets, places, and **house‑number addresses**, ranked by relevance and distance from you.
-- ⭐ **Favorites & recents.** Home / Work / pinned places with rename + remove, and a draggable bottom sheet you can park anywhere.
-- 🔴 **Live camera layer.** Color‑coded by type (ALPR/Flock, gunshot, speed, CCTV), each tappable to show its read direction and how fresh the OSM data is. One‑tap refresh pulls the latest for your area and flashes "Updated — N new devices."
+- 🔴 **Live camera layer.** Color‑coded by type (ALPR/Flock = red, gunshot = amber, speed = blue, CCTV = gray), each tappable to show its read direction and how fresh the OSM data is. A one‑tap **refresh** in the ⋮ menu pulls the latest for your area and flashes "Updated — N new devices."
+- 🔆 **Stays awake while you drive.** Keeps the screen on in the foreground (and lets it sleep normally once you leave the app), so it never locks mid‑trip.
 - 🔒 **Privacy by construction.** See below.
 
 ## Privacy
@@ -68,7 +71,8 @@ The same logic runs as a desktop prototype in [`scripts/graphtool`](scripts/grap
 | Map rendering | MapLibre Native (Android) + offline **PMTiles** |
 | Routing | GraphHopper (core) — A* with landmark heuristics, contraction‑hierarchy alternatives |
 | Search | SQLite + FTS, with US DOT National Address Database house numbers |
-| Storage | Room |
+| Terrain | SRTM elevation → GDAL hillshade + contours → offline PMTiles |
+| Storage | Room + on‑device prefs (favorites, learned routes) |
 | Camera data | OpenStreetMap via Overpass API (ODbL) |
 | Min / target SDK | 26 / 36 |
 
@@ -78,7 +82,7 @@ No third‑party HTTP or JSON libraries — the one network path uses the platfo
 
 GhostRoute's APK is small; the heavy offline data (basemap, routing graph, address index) is **built separately and pushed into app storage** — it's far too large for an APK and is never committed to git.
 
-**Prerequisites:** Android Studio (JDK 21 / JBR), an Android device or emulator, `adb`. The data builders also use Java 17+, Python 3, and `osmium`.
+**Prerequisites:** Android Studio (JDK 21 / JBR), an Android device or emulator, `adb`. The data builders also use Java 17+, Python 3, and `osmium`; the optional topo overlay additionally uses `gdal`, `tippecanoe`, and `pmtiles`.
 
 ```bash
 # 1. Build the app (verifyNoGms runs as part of the build)
@@ -88,12 +92,15 @@ GhostRoute's APK is small; the heavy offline data (basemap, routing graph, addre
 scripts/build-pmtiles.sh              # vector basemap  -> scripts/data/*.pmtiles
 scripts/build-graph.sh                # routing graph   -> scripts/data/tennessee-gh
 scripts/build-geocoder.sh             # search index    -> scripts/data/geocoder.db
+TOPO_DEM=region-dem.tif \
+  scripts/build-topo.sh               # optional: hillshade + contours -> *.pmtiles
 
 # 3. Install + push the data onto a connected device
 ./gradlew :app:installDebug -PdataPush   # debuggable build (so run-as can write app storage)
 scripts/build-pmtiles.sh  --install
 scripts/build-graph.sh    --install
 scripts/build-geocoder.sh --install
+scripts/build-topo.sh     --install      # optional
 ./gradlew :app:installDebug              # reinstall the fast, non-debuggable build
 ```
 
@@ -106,12 +113,14 @@ The **region is configurable at build time** — point the data scripts at a dif
 ```
 app/                     Android app (Compose UI, routing, geocoder, camera data)
   └─ src/main/java/com/ghostroute/app/
-       ui/map/           Map screen, drive view, route + camera layers
-       routing/          Camera-aware routing engine (GraphHopper)
+       ui/map/           Map screen, drive view, route/camera/favorite/topo layers
+       routing/          Camera-aware routing engine + learned-route reconstruction
        navigation/       Turn-by-turn engine (snapping, maneuvers, voice cues)
        geocode/          Offline FTS geocoder
+       map/              Basemap + topo PMTiles providers
+       places/           Favorites, recents, and learned routes (on-device)
        data/             Room entities, Overpass client, camera repository
-scripts/                 Offline-data pipeline (basemap, graph, geocoder) + graphtool prototype
+scripts/                 Offline-data pipeline (basemap, graph, geocoder, topo) + graphtool
 docs/                    Overview + assets
 ```
 

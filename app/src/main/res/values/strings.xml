@@ -19,6 +19,10 @@
     <string name="show_cameras">Show cameras</string>
     <string name="hide_cameras">Hide cameras</string>
     <string name="refresh_cameras">Refresh camera data</string>
+    <string name="refreshing_cameras">Refreshing…</string>
+    <string name="menu">Menu</string>
+    <string name="show_topo">Show topographic</string>
+    <string name="hide_topo">Hide topographic</string>
     <string name="cameras_syncing">Updating camera data…</string>
     <string name="cameras_sync_failed">Camera sync failed: %1$s</string>
     <string name="cameras_never_synced">never</string>
@@ -34,6 +38,7 @@
     <string name="route_failed">No route found: %1$s</string>
     <string name="routes_title">Routes</string>
     <string name="route_calculating_alts">Finding routes…</string>
+    <string name="route_label_usual">Your usual</string>
     <string name="route_label_fastest">Fastest</string>
     <string name="route_label_balanced">Fewer cameras</string>
     <string name="route_label_low_exposure">Fewest cameras</string>

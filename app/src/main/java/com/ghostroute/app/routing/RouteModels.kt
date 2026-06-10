@@ -48,6 +48,9 @@ data class ScoredRoute(
     val maneuvers: List<Maneuver>,
     /** How hard this candidate avoided cameras: 0 = fastest, higher = more paranoid. */
     val penaltyPerCamera: Double,
+    /** True if this route was reconstructed from a path the user habitually drives to this
+     *  destination (learned automatically) — surfaced as "Your usual" and pre-selected. */
+    val isLearned: Boolean = false,
 )
 
 /** Result of a multi-route (camera-aware) request. */

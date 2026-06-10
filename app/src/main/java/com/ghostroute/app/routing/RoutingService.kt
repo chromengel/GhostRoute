@@ -379,6 +379,66 @@ object RoutingService {
     }
 
     /**
+     * Reconstructs a route that follows a remembered [chain] of waypoints (start … destination)
+     * by routing each consecutive leg and stitching them together — points, turn-by-turn, and
+     * totals. This reproduces the corridor the user habitually drives while still giving real
+     * snapping and directions. Legs use the plain fastest weighting (the waypoints ARE the
+     * user's chosen path); the result is scored for camera count like any other route. Returns
+     * null if the graph is missing or any leg can't be routed.
+     */
+    suspend fun routeViaPoints(
+        context: Context,
+        cameras: List<CameraEntity>,
+        chain: List<RoutePoint>,
+    ): ScoredRoute? = withContext(Dispatchers.Default) {
+        if (chain.size < 2) return@withContext null
+        if (!isGraphInstalled(context)) return@withContext null
+        val gh = try {
+            loadedHopper(context)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load graph for learned route", e)
+            return@withContext null
+        }
+        val base = baseWeighting ?: gh.createWeighting(gh.getProfile(PROFILE), PMap())
+            .also { baseWeighting = it }
+        val exposure = exposureFor(gh, cameras)
+
+        val allPoints = ArrayList<RoutePoint>()
+        val allManeuvers = ArrayList<Maneuver>()
+        var cumDist = 0.0
+        var cumTime = 0L
+        for (i in 0 until chain.size - 1) {
+            val a = chain[i]
+            val b = chain[i + 1]
+            val leg = flexRoute(gh, base, a.lat, a.lon, b.lat, b.lon, exposure, 0.0, withManeuvers = true)
+                ?: return@withContext null
+            val legPts = leg.points.toRoutePoints()
+            if (i == 0) allPoints.addAll(legPts) else allPoints.addAll(legPts.drop(1))
+            val isLast = i == chain.size - 2
+            for (mv in leg.maneuvers) {
+                // Drop the "arrive" pin of every intermediate leg — only the final leg arrives.
+                if (!isLast && mv.sign == Maneuver.SIGN_FINISH) continue
+                allManeuvers.add(mv.copy(distanceAlongRouteM = mv.distanceAlongRouteM + cumDist))
+            }
+            cumDist += leg.distance
+            cumTime += leg.time
+        }
+        if (allPoints.size < 2) return@withContext null
+        ScoredRoute(
+            distanceMeters = cumDist,
+            durationMillis = cumTime,
+            camerasPassed = CameraExposure.camerasPassed(allPoints.toPointList(), cameras),
+            points = allPoints,
+            maneuvers = allManeuvers,
+            penaltyPerCamera = -1.0,
+            isLearned = true,
+        )
+    }
+
+    private fun List<RoutePoint>.toPointList(): PointList =
+        PointList(size, false).also { pl -> forEach { pl.add(it.lat, it.lon) } }
+
+    /**
      * Warms the routing engine off the main thread at app startup: loads the graph +
      * landmarks, triggers the one-time (~6 s) instruction-translation import, and runs a
      * throwaway route to JIT the search paths — so the user's FIRST real route is fast

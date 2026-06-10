@@ -33,11 +33,12 @@ class NavigationEngine(private val route: ScoredRoute) {
     private val cumulative: DoubleArray = DoubleArray(points.size)
     private val totalDistanceM: Double
 
-    // Each maneuver's distance along THIS route's polyline, found by snapping the maneuver's
-    // own point onto the geometry we draw + snap the driver to. Using this (instead of the
-    // maneuver's precomputed distance, which can come from a slightly different path) keeps
-    // the next-turn pick in the exact same metric/geometry as progress — so the banner names
-    // the upcoming turn on the blue line and advances with you instead of sticking.
+    // Each maneuver's distance along the route, in the engine's own (equirectangular) metric
+    // so it compares apples-to-apples with `progress`. Built from the maneuver's precomputed
+    // cumulative distance (which is monotonic and matches the blue line, since maneuvers are
+    // now generated from the SAME path) rather than re-snapping each point independently —
+    // independent snapping could land a turn on the wrong nearby segment and produce an
+    // out-of-order value, which froze the next-turn name. A running max guarantees order.
     private val maneuverAlong: DoubleArray
 
     private val spokenPrepare = HashSet<Int>()
@@ -52,9 +53,15 @@ class NavigationEngine(private val route: ScoredRoute) {
             cumulative[i] = sum
         }
         totalDistanceM = sum
-        maneuverAlong = DoubleArray(route.maneuvers.size) { i ->
-            val m = route.maneuvers[i]
-            snapToRoute(m.lat, m.lon).alongM
+        // Rescale the maneuvers' GraphHopper-measured distances into the engine's metric and
+        // force them non-decreasing, so the next-turn pick always advances with you.
+        val ghTotal = route.maneuvers.lastOrNull()?.distanceAlongRouteM ?: 0.0
+        val scale = if (ghTotal > 1.0) totalDistanceM / ghTotal else 1.0
+        maneuverAlong = DoubleArray(route.maneuvers.size)
+        var running = 0.0
+        for (i in route.maneuvers.indices) {
+            running = maxOf(running, route.maneuvers[i].distanceAlongRouteM * scale)
+            maneuverAlong[i] = running
         }
     }
 
@@ -78,10 +85,12 @@ class NavigationEngine(private val route: ScoredRoute) {
         val arrived = distanceRemaining <= ARRIVE_THRESHOLD_M
         val offRoute = snap.offRouteM > OFF_ROUTE_THRESHOLD_M
 
-        // Next maneuver = first turn physically ahead of us on the route (skip "continue").
-        val nextIndex = route.maneuvers.indices.firstOrNull { i ->
-            maneuverAlong[i] > progress + 1.0 && route.maneuvers[i].sign != 0
-        } ?: -1
+        // Next maneuver = the NEAREST real turn ahead of us (skip "continue"). Picking the
+        // closest-ahead by distance (not the first in list order) means an out-of-order entry
+        // can never trap the banner on a turn you've already passed.
+        val nextIndex = route.maneuvers.indices
+            .filter { i -> maneuverAlong[i] > progress + 1.0 && route.maneuvers[i].sign != 0 }
+            .minByOrNull { maneuverAlong[it] } ?: -1
         val next = route.maneuvers.getOrNull(nextIndex)
         val distanceToManeuver = if (next != null) maneuverAlong[nextIndex] - progress else distanceRemaining
 
