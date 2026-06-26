@@ -1,0 +1,45 @@
+# GraphHopper import config for GhostRoute's offline graph build.
+# The app (graphhopper-core 8.0) MUST load a graph built with the SAME version
+# and the SAME profile config below, or it will refuse to load.
+#
+# Phase 3: a single car/fastest profile with Contraction Hierarchies (CH) for
+# fast, static queries. Phase 4 will add a separate flexible/LM profile that a
+# native Kotlin Weighting can penalize by camera exposure (CH can't vary per
+# request; custom models can't run on Android because of Janino).
+graphhopper:
+  datareader.file: data/sources/tennessee.osm.pbf
+  graph.location: scripts/data/tennessee-gh
+
+  # Car-only graph: skip non-motorized ways (also speeds up import).
+  import.osm.ignored_highways: footway,cycleway,path,pedestrian,steps,bridleway
+
+  profiles:
+    - name: car
+      vehicle: car
+      weighting: fastest
+
+  profiles_ch:
+    - profile: car
+
+  # Landmarks for fast *flexible* routing (camera-aware weighting varies per
+  # request, so CH can't be used). The LM heuristic, built on the fastest
+  # weighting, stays an admissible lower bound for the camera penalty.
+  profiles_lm:
+    - profile: car
+
+# Required by the Dropwizard config parser in the web jar; unused by `import`.
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+  admin_connectors:
+    - type: http
+      port: 8990
+  request_log:
+    appenders: []
+
+logging:
+  level: INFO
+  appenders:
+    - type: console
+      threshold: WARN

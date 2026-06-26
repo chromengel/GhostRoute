@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme. Compose drives the real UI/colors; this just
+         provides a sane splash/background before Compose takes over. -->
+    <style name="Theme.GhostRoute" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/ghost_background</item>
+        <item name="android:navigationBarColor">@color/ghost_background</item>
+        <item name="android:windowBackground">@color/ghost_background</item>
+    </style>
+</resources>

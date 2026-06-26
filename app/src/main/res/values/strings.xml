@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GhostRoute</string>
+
+    <!-- Map / location -->
+    <string name="map_loading">Loading offline basemap…</string>
+    <string name="recenter">Recenter on my location</string>
+    <string name="location_permission_rationale">GhostRoute needs location access to show where you are and navigate. Your location never leaves this device.</string>
+    <string name="location_permission_denied">Location permission denied. Enable it in Settings to see your position on the map.</string>
+    <string name="grant_permission">Grant permission</string>
+
+    <!-- Honest coverage caveat (see plan §2 Non-Goals / §10) -->
+    <string name="coverage_caveat">Camera data is incomplete — absence of a pin does not mean absence of a camera.</string>
+
+    <!-- Required map attribution: OpenMapTiles tiles are CC-BY, OSM data is ODbL. -->
+    <string name="map_attribution">© OpenMapTiles © OpenStreetMap contributors</string>
+
+    <!-- Camera layer controls + status -->
+    <string name="show_cameras">Show cameras</string>
+    <string name="hide_cameras">Hide cameras</string>
+    <string name="refresh_cameras">Refresh camera data</string>
+    <string name="refreshing_cameras">Refreshing…</string>
+    <string name="menu">Menu</string>
+    <string name="show_topo">Show topographic</string>
+    <string name="hide_topo">Hide topographic</string>
+    <string name="cameras_syncing">Updating camera data…</string>
+    <string name="cameras_sync_failed">Camera sync failed: %1$s</string>
+    <string name="cameras_never_synced">never</string>
+    <string name="cameras_status">%1$d cameras · synced %2$s</string>
+
+    <!-- Routing -->
+    <string name="route_hint">Long-press the map to set a destination</string>
+    <string name="route_calculating">Calculating route…</string>
+    <string name="route_fastest_label">Fastest route</string>
+    <string name="route_clear">Clear route</string>
+    <string name="route_needs_location">Waiting for your location — enable location to route.</string>
+    <string name="route_graph_missing">Routing graph not installed. Build it with scripts/build-graph.sh --install.</string>
+    <string name="route_failed">No route found: %1$s</string>
+    <string name="routes_title">Routes</string>
+    <string name="route_calculating_alts">Finding routes…</string>
+    <string name="route_label_usual">Your usual</string>
+    <string name="route_label_fastest">Fastest</string>
+    <string name="route_label_balanced">Fewer cameras</string>
+    <string name="route_label_low_exposure">Fewest cameras</string>
+    <string name="route_label_alternate">Alternate</string>
+    <string name="cameras_count">%1$d cam</string>
+    <string name="route_pick_hint">Tap a route to choose it, then Start.</string>
+
+    <!-- Navigation -->
+    <string name="nav_start">Start</string>
+    <string name="nav_stop">End</string>
+    <string name="nav_voice_on">Mute voice</string>
+    <string name="nav_voice_off">Unmute voice</string>
+    <string name="nav_recalculating">Recalculating…</string>
+    <string name="nav_arrived">Arrived</string>
+    <string name="nav_then">then</string>
+    <string name="nav_remaining">%1$s · %2$s left</string>
+
+    <!-- Basemap missing -->
+    <string name="basemap_missing_title">No offline basemap installed</string>
+    <string name="basemap_missing_body">Build a Tennessee PMTiles file with scripts/build-pmtiles.sh and place it at the path shown below, then reopen the app.</string>
+</resources>
